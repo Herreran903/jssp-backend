@@ -15,7 +15,7 @@ from .models import Machine, Operation, SolverConfig, Solution
 # Public API ------------------------------------------------------------------
 
 
-def solve_jobshop(
+async def solve_jobshop(
     *,
     data: Dict[str, Any],
     solver_config: SolverConfig,
@@ -32,11 +32,11 @@ def solve_jobshop(
     model_path = _select_model_path(solver_config.problemType)
 
     if solver_config.problemType == "tardanza_ponderada":
-        return _run_jobshop_tardanza(
+        return await _run_jobshop_tardanza(
             model_path=model_path, data=data, solver_config=solver_config
         )
     elif solver_config.problemType == "jssp_maint":
-        return _run_jobshop_mantenimiento(
+        return await _run_jobshop_mantenimiento(
             model_path=model_path, data=data, solver_config=solver_config
         )
     else:
@@ -163,7 +163,7 @@ def _build_modified_model(
     return temp_file.name
 
 
-def _run_jobshop_tardanza(
+async def _run_jobshop_tardanza(
     *,
     model_path: str,
     data: Dict[str, Any],
@@ -197,7 +197,7 @@ def _run_jobshop_tardanza(
         instance["weights"] = weights
         instance["due_dates"] = due_dates
 
-        result = _solve_instance(instance, solver_config=solver_config)
+        result = await _solve_instance(instance, solver_config=solver_config)
 
         if not result.status.has_solution():
             raise RuntimeError("MiniZinc did not produce a feasible solution")
@@ -248,7 +248,7 @@ def _run_jobshop_tardanza(
             pass
 
 
-def _run_jobshop_mantenimiento(
+async def _run_jobshop_mantenimiento(
     *,
     model_path: str,
     data: Dict[str, Any],
@@ -288,7 +288,7 @@ def _run_jobshop_mantenimiento(
         instance["MAINT_END"] = MAINT_END
         instance["MAINT_ACTIVE"] = MAINT_ACTIVE
 
-        result = _solve_instance(instance, solver_config=solver_config)
+        result = await _solve_instance(instance, solver_config=solver_config)
 
         if not result.status.has_solution():
             raise RuntimeError("MiniZinc did not produce a feasible solution")
@@ -374,7 +374,7 @@ def _build_instance(model_path: str, solver_config: SolverConfig) -> Instance:
     return Instance(solver, model)
 
 
-def _solve_instance(instance: Instance, *, solver_config: SolverConfig) -> Result:
+async def _solve_instance(instance: Instance, *, solver_config: SolverConfig) -> Result:
     """Execute the MiniZinc instance with the configured parameters."""
     timeout: _dt.timedelta | None = None
     if solver_config.timeLimitSec and solver_config.timeLimitSec > 0:
@@ -389,7 +389,7 @@ def _solve_instance(instance: Instance, *, solver_config: SolverConfig) -> Resul
     if solver_config.maxSolutions > 1:
         kwargs["nr_solutions"] = solver_config.maxSolutions
     
-    return instance.solve(**kwargs)
+    return await instance.solve_async(**kwargs)
 
 
 # Result extraction helpers ----------------------------------------------------

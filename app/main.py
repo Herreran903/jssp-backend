@@ -179,7 +179,7 @@ def create_app() -> FastAPI:
 
             # Solve with MiniZinc using the configured solver
             try:
-                solution, _stats = solve_jobshop(
+                solution, _stats = await solve_jobshop(
                     data=data, solver_config=solver_config
                 )
             except ValueError as ve:
