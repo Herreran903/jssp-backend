@@ -3,12 +3,28 @@ from __future__ import annotations
 from typing import List, Literal, Optional, Dict
 from pydantic import BaseModel, Field, ConfigDict
 
-HeuristicType = Literal["greedy", "tabu", "sa"]
-
-
-class SearchConfig(BaseModel):
+# New SolverConfig schema as per specification
+class SolverConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    heuristic: HeuristicType
+    problemType: Literal["jssp_maint", "tardanza_ponderada"]
+    solver: Literal["chuffed", "gecode", "or-tools"]
+    searchHeuristic: Literal[
+        "input_order",
+        "first_fail",
+        "smallest",
+        "largest",
+        "dom_w_deg",
+        "impact",
+        "activity"
+    ]
+    valueChoice: Literal[
+        "indomain_min",
+        "indomain_max",
+        "indomain_middle",
+        "indomain_median",
+        "indomain_random",
+        "indomain_split"
+    ]
     timeLimitSec: float = Field(ge=0)
     maxSolutions: int = Field(ge=1)
 

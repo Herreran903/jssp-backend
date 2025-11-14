@@ -1,0 +1,21 @@
+{
+  "JOBS": 2,
+  "TASKS": 2,
+  "PROC_TIME": [
+    [3, 4],
+    [2, 3]
+  ],
+  "MAX_MAINT_WINDOWS": 1,
+  "MAINT_START": [
+    [5],
+    [6]
+  ],
+  "MAINT_END": [
+    [8],
+    [9]
+  ],
+  "MAINT_ACTIVE": [
+    [true],
+    [true]
+  ]
+}

@@ -2,17 +2,13 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-.venv*/
-.conda/
-
-# Distribution / packaging
+*.so
 .Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 build/
 develop-eggs/
 dist/
@@ -25,11 +21,16 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
 
 # Unit test / coverage reports
 htmlcov/
@@ -37,6 +38,7 @@ htmlcov/
 .nox/
 .coverage
 .coverage.*
+.cache
 nosetests.xml
 coverage.xml
 *.cover
@@ -44,74 +46,98 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
 
 # pyenv
 .python-version
 
-# Linting/type checking
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.env.local
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
 .mypy_cache/
 .dmypy.json
 dmypy.json
-.pytype/
+
+# Pyre type checker
 .pyre/
 
-# Compiled extensions
-*.so
-*.pyd
-*.dll
-
-# IDEs and editors
+# IDEs
 .vscode/
 .idea/
-*.code-workspace
-
-# macOS
+*.swp
+*.swo
+*~
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
 
-# Windows
-ehthumbs.db
+# OS
 Thumbs.db
 
-# Logs
-logs/
-*.log
-*.log.*
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Environment variables
-.env
-.env.*
-.envrc
-*.env
-
-# Local data/temp
-tmp/
-temp/
-
-# SQLite and local DBs
-*.sqlite3
-*.db
-*.db-*
-
-# Docker (keep Dockerfile)
-docker-compose.override.yml
-docker/volumes/
-.docker/
-
-# MiniZinc artifacts (keep .mzn and .dzn)
+# Temporary MiniZinc files
+*.mzn.tmp
 *.fzn
 *.ozn
-*.ozn.json
-*.ozn.txt
 
-# Caches
-**/.cache/
-.cache/
+# Local instance files (optional - uncomment if you don't want to commit instances)
+# storage/instances/*.json
+# storage/instances/*.dzn
+
+*.md

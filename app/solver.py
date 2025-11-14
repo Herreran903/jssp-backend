@@ -4,11 +4,12 @@ import datetime as _dt
 import json
 import os
 import re
+import tempfile
 from typing import Any, Dict, List, Tuple
 
 from minizinc import Instance, Model, Result, Solver  # type: ignore
 
-from .models import HeuristicType, Machine, Operation, SearchConfig, Solution
+from .models import Machine, Operation, SolverConfig, Solution
 
 
 # Public API ------------------------------------------------------------------
@@ -16,28 +17,30 @@ from .models import HeuristicType, Machine, Operation, SearchConfig, Solution
 
 def solve_jobshop(
     *,
-    model_id: str,
-    variation: str,
     data: Dict[str, Any],
-    search: SearchConfig,
+    solver_config: SolverConfig,
 ) -> Tuple[Solution, Dict[str, float]]:
     """
-    Execute the specified jobshop variation using MiniZinc and normalize the solution.
+    Execute the specified jobshop problem using MiniZinc with the provided configuration.
 
     Returns:
         (solution, stats)
     Raises:
-        ValueError on validation / unsupported model/variation or data problems.
+        ValueError on validation / unsupported configuration or data problems.
         RuntimeError on MiniZinc execution errors or no feasible solution.
     """
-    model_path = _select_jobshop_model_path(model_id=model_id, variation=variation)
+    model_path = _select_model_path(solver_config.problemType)
 
-    if variation == "tardanza":
-        return _run_jobshop_tardanza(model_path=model_path, data=data, search=search)
-    elif variation == "mantenimiento":
-        return _run_jobshop_mantenimiento(model_path=model_path, data=data, search=search)
+    if solver_config.problemType == "tardanza_ponderada":
+        return _run_jobshop_tardanza(
+            model_path=model_path, data=data, solver_config=solver_config
+        )
+    elif solver_config.problemType == "jssp_maint":
+        return _run_jobshop_mantenimiento(
+            model_path=model_path, data=data, solver_config=solver_config
+        )
     else:
-        raise ValueError(f"Unsupported variation '{variation}' for modelId '{model_id}'")
+        raise ValueError(f"Unsupported problemType '{solver_config.problemType}'")
 
 
 def parse_instance_payload_from_multipart(
@@ -59,7 +62,7 @@ def parse_instance_payload_from_multipart(
             if not isinstance(obj, dict):
                 raise ValueError("JSON instance must be an object")
             return obj
-        except Exception as exc:  # fallthrough to DZN parser with clear message
+        except Exception as exc:
             raise ValueError(f"Invalid JSON instance file: {exc}") from exc
 
     # If not explicitly .json, try JSON first anyway (helpful for misnamed files)
@@ -100,29 +103,71 @@ def load_instance_by_id(instance_id: str) -> Dict[str, Any]:
 # Internal helpers -------------------------------------------------------------
 
 
-def _select_jobshop_model_path(*, model_id: str, variation: str) -> str:
-    if model_id != "jobshop":
-        raise ValueError(f"Unsupported modelId '{model_id}'")
-
+def _select_model_path(problem_type: str) -> str:
+    """Select the appropriate MiniZinc model file based on problem type."""
     root = os.path.dirname(__file__)
     models_dir = os.path.join(root, "modelos")
-    if variation == "tardanza":
+    
+    if problem_type == "tardanza_ponderada":
         path = os.path.join(models_dir, "JOBSHOP_TARDANZA.MZN")
-    elif variation == "mantenimiento":
+    elif problem_type == "jssp_maint":
         path = os.path.join(models_dir, "JOBSHOP_MANTENIMIENTO.MZN")
     else:
-        raise ValueError(f"Unsupported variation '{variation}' for modelId '{model_id}'")
+        raise ValueError(f"Unsupported problemType '{problem_type}'")
 
     if not os.path.exists(path):
         raise RuntimeError(f"Model file not found: {path}")
     return path
 
 
+def _build_modified_model(
+    original_model_path: str, solver_config: SolverConfig
+) -> str:
+    """
+    Read the original model and inject the search annotation based on solver_config.
+    Returns the path to a temporary modified model file.
+    """
+    with open(original_model_path, "r", encoding="utf-8") as f:
+        model_content = f.read()
+
+    # Build the search annotation
+    search_annotation = (
+        f"solve :: int_search(BRANCH_VARS, {solver_config.searchHeuristic}, "
+        f"{solver_config.valueChoice}, complete) minimize "
+    )
+
+    # Determine the objective variable based on problem type
+    if solver_config.problemType == "tardanza_ponderada":
+        objective = "w"
+    else:  # jssp_maint
+        objective = "END"
+
+    search_line = f"{search_annotation}{objective};"
+
+    # Replace the default solve statement with our configured one
+    # Look for lines starting with "solve" (possibly with whitespace)
+    model_content = re.sub(
+        r"^\s*solve\s+.*?;",
+        search_line,
+        model_content,
+        flags=re.MULTILINE
+    )
+
+    # Write to a temporary file
+    temp_file = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".mzn", delete=False, encoding="utf-8"
+    )
+    temp_file.write(model_content)
+    temp_file.close()
+    
+    return temp_file.name
+
+
 def _run_jobshop_tardanza(
     *,
     model_path: str,
     data: Dict[str, Any],
-    search: SearchConfig,
+    solver_config: SolverConfig,
 ) -> Tuple[Solution, Dict[str, float]]:
     """
     Inputs expected in 'data':
@@ -134,7 +179,6 @@ def _run_jobshop_tardanza(
     Result variables used:
       - s: 2D int [jobs][tasks] (start times)
       - w: int (weighted tardiness)
-      - end_job, T, end may also be present but are not required
     """
     jobs = _require_int(data, "jobs")
     tasks = _require_int(data, "tasks")
@@ -142,64 +186,73 @@ def _run_jobshop_tardanza(
     weights = _require_1d_int(data, "weights", size=jobs)
     due_dates = _require_1d_int(data, "due_dates", size=jobs)
 
-    instance = _build_instance(model_path)
-    instance["jobs"] = int(jobs)
-    instance["tasks"] = int(tasks)
-    instance["d"] = d
-    instance["weights"] = weights
-    instance["due_dates"] = due_dates
+    # Build modified model with search annotation
+    modified_model_path = _build_modified_model(model_path, solver_config)
+    
+    try:
+        instance = _build_instance(modified_model_path, solver_config)
+        instance["jobs"] = int(jobs)
+        instance["tasks"] = int(tasks)
+        instance["d"] = d
+        instance["weights"] = weights
+        instance["due_dates"] = due_dates
 
-    result = _solve_instance(instance, search=search)
+        result = _solve_instance(instance, solver_config=solver_config)
 
-    if not result.status.has_solution():
-        raise RuntimeError("MiniZinc did not produce a feasible solution")
+        if not result.status.has_solution():
+            raise RuntimeError("MiniZinc did not produce a feasible solution")
 
-    s = _require_result_2d(result, "s", rows=jobs, cols=tasks)
-    w = _require_result_int(result, "w")
+        s = _require_result_2d(result, "s", rows=jobs, cols=tasks)
+        w = _require_result_int(result, "w")
 
-    # Normalize machines
-    machines = [Machine(id=f"M{j}", name=f"M{j}") for j in range(1, tasks + 1)]
+        # Normalize machines
+        machines = [Machine(id=f"M{j}", name=f"M{j}") for j in range(1, tasks + 1)]
 
-    # Build operations
-    ops: List[Operation] = []
-    for i in range(1, jobs + 1):
-        for j in range(1, tasks + 1):
-            start = float(s[i - 1][j - 1])
-            duration = float(d[i - 1][j - 1])
-            end = start + duration
-            ops.append(
-                Operation(
-                    jobId=f"J{i}",
-                    machineId=f"M{j}",
-                    opId=f"J{i}-{j}",
-                    start=start,
-                    end=end,
-                    duration=duration,
+        # Build operations
+        ops: List[Operation] = []
+        for i in range(1, jobs + 1):
+            for j in range(1, tasks + 1):
+                start = float(s[i - 1][j - 1])
+                duration = float(d[i - 1][j - 1])
+                end = start + duration
+                ops.append(
+                    Operation(
+                        jobId=f"J{i}",
+                        machineId=f"M{j}",
+                        opId=f"J{i}-{j}",
+                        start=start,
+                        end=end,
+                        duration=duration,
+                    )
                 )
-            )
 
-    makespan = max((op.end for op in ops), default=0.0)
+        makespan = max((op.end for op in ops), default=0.0)
 
-    stats: Dict[str, float] = {
-        "w": float(w),
-    }
-    # Optionally, compute additional stats (not required):
-    # end_job = [ s[i,tasks] + d[i,tasks] ]; tardiness count, etc. (omitted to keep minimal)
+        stats: Dict[str, float] = {
+            "w": float(w),
+            "tardanza": float(w),
+        }
 
-    solution = Solution(
-        makespan=float(makespan),
-        machines=machines,
-        operations=ops,
-        stats={k: float(v) for k, v in stats.items()},
-    )
-    return solution, stats
+        solution = Solution(
+            makespan=float(makespan),
+            machines=machines,
+            operations=ops,
+            stats=stats,
+        )
+        return solution, stats
+    finally:
+        # Clean up temporary model file
+        try:
+            os.unlink(modified_model_path)
+        except Exception:
+            pass
 
 
 def _run_jobshop_mantenimiento(
     *,
     model_path: str,
     data: Dict[str, Any],
-    search: SearchConfig,
+    solver_config: SolverConfig,
 ) -> Tuple[Solution, Dict[str, float]]:
     """
     Inputs expected in 'data':
@@ -222,83 +275,121 @@ def _run_jobshop_mantenimiento(
     MAINT_END = _require_2d_int(data, "MAINT_END", rows=TASKS, cols=MAX_MW)
     MAINT_ACTIVE = _require_2d_bool(data, "MAINT_ACTIVE", rows=TASKS, cols=MAX_MW)
 
-    instance = _build_instance(model_path)
-    instance["JOBS"] = int(JOBS)
-    instance["TASKS"] = int(TASKS)
-    instance["PROC_TIME"] = PROC_TIME
-    instance["MAX_MAINT_WINDOWS"] = int(MAX_MW)
-    instance["MAINT_START"] = MAINT_START
-    instance["MAINT_END"] = MAINT_END
-    instance["MAINT_ACTIVE"] = MAINT_ACTIVE
+    # Build modified model with search annotation
+    modified_model_path = _build_modified_model(model_path, solver_config)
+    
+    try:
+        instance = _build_instance(modified_model_path, solver_config)
+        instance["JOBS"] = int(JOBS)
+        instance["TASKS"] = int(TASKS)
+        instance["PROC_TIME"] = PROC_TIME
+        instance["MAX_MAINT_WINDOWS"] = int(MAX_MW)
+        instance["MAINT_START"] = MAINT_START
+        instance["MAINT_END"] = MAINT_END
+        instance["MAINT_ACTIVE"] = MAINT_ACTIVE
 
-    result = _solve_instance(instance, search=search)
+        result = _solve_instance(instance, solver_config=solver_config)
 
-    if not result.status.has_solution():
-        raise RuntimeError("MiniZinc did not produce a feasible solution")
+        if not result.status.has_solution():
+            raise RuntimeError("MiniZinc did not produce a feasible solution")
 
-    S = _require_result_2d(result, "S", rows=JOBS, cols=TASKS)
-    END = _require_result_int(result, "END")
+        S = _require_result_2d(result, "S", rows=JOBS, cols=TASKS)
+        END = _require_result_int(result, "END")
 
-    machines = [Machine(id=f"M{j}", name=f"M{j}") for j in range(1, TASKS + 1)]
+        machines = [Machine(id=f"M{j}", name=f"M{j}") for j in range(1, TASKS + 1)]
 
-    ops: List[Operation] = []
-    for i in range(1, JOBS + 1):
-        for j in range(1, TASKS + 1):
-            start = float(S[i - 1][j - 1])
-            duration = float(PROC_TIME[i - 1][j - 1])
-            end = start + duration
-            ops.append(
-                Operation(
-                    jobId=f"J{i}",
-                    machineId=f"M{j}",
-                    opId=f"J{i}-{j}",
-                    start=start,
-                    end=end,
-                    duration=duration,
+        ops: List[Operation] = []
+        for i in range(1, JOBS + 1):
+            for j in range(1, TASKS + 1):
+                start = float(S[i - 1][j - 1])
+                duration = float(PROC_TIME[i - 1][j - 1])
+                end = start + duration
+                ops.append(
+                    Operation(
+                        jobId=f"J{i}",
+                        machineId=f"M{j}",
+                        opId=f"J{i}-{j}",
+                        start=start,
+                        end=end,
+                        duration=duration,
+                    )
                 )
-            )
 
-    # Stats for maintenance (optional)
-    maint_windows = 0
-    maint_time = 0
-    for m in range(TASKS):
-        for k in range(MAX_MW):
-            if bool(MAINT_ACTIVE[m][k]):
-                maint_windows += 1
-                dur = max(0, int(MAINT_END[m][k]) - int(MAINT_START[m][k]))
-                maint_time += dur
+        # Stats for maintenance
+        maint_windows = 0
+        maint_time = 0
+        for m in range(TASKS):
+            for k in range(MAX_MW):
+                if bool(MAINT_ACTIVE[m][k]):
+                    maint_windows += 1
+                    dur = max(0, int(MAINT_END[m][k]) - int(MAINT_START[m][k]))
+                    maint_time += dur
 
-    stats: Dict[str, float] = {
-        "maint_windows": float(maint_windows),
-        "maint_time": float(maint_time),
+        stats: Dict[str, float] = {
+            "maint_windows": float(maint_windows),
+            "maint_time": float(maint_time),
+        }
+
+        solution = Solution(
+            makespan=float(END),
+            machines=machines,
+            operations=ops,
+            stats=stats,
+        )
+        return solution, stats
+    finally:
+        # Clean up temporary model file
+        try:
+            os.unlink(modified_model_path)
+        except Exception:
+            pass
+
+
+def _build_instance(model_path: str, solver_config: SolverConfig) -> Instance:
+    """Build a MiniZinc instance with the specified solver."""
+    # Map solver names to MiniZinc solver identifiers
+    solver_map = {
+        "chuffed": "chuffed",
+        "gecode": "gecode",
+        "or-tools": "com.google.ortools.sat",
     }
-
-    solution = Solution(
-        makespan=float(END),
-        machines=machines,
-        operations=ops,
-        stats=stats,
-    )
-    return solution, stats
-
-
-def _build_instance(model_path: str) -> Instance:
-    # Use default solver (gecode) if available, else chuffed.
-    solver = Solver.lookup("gecode") or Solver.lookup("chuffed")
+    
+    solver_name = solver_map.get(solver_config.solver)
+    if not solver_name:
+        raise ValueError(f"Unsupported solver: {solver_config.solver}")
+    
+    try:
+        solver = Solver.lookup(solver_name)
+    except Exception:
+        # Fallback to available solvers
+        solver = Solver.lookup("gecode") or Solver.lookup("chuffed")
+    
     if solver is None:
-        raise RuntimeError("No MiniZinc solver found (e.g., 'gecode' or 'chuffed'). Ensure MiniZinc is installed and on PATH.")
+        raise RuntimeError(
+            f"Solver '{solver_config.solver}' not found. "
+            "Ensure MiniZinc is installed with the required solver."
+        )
+    
     model = Model(model_path)
     return Instance(solver, model)
 
 
-def _solve_instance(instance: Instance, *, search: SearchConfig) -> Result:
+def _solve_instance(instance: Instance, *, solver_config: SolverConfig) -> Result:
+    """Execute the MiniZinc instance with the configured parameters."""
     timeout: _dt.timedelta | None = None
-    if search.timeLimitSec and search.timeLimitSec > 0:
-        timeout = _dt.timedelta(seconds=float(search.timeLimitSec))
-    # maxSolutions currently unused; could be mapped to 'all_solutions'
+    if solver_config.timeLimitSec and solver_config.timeLimitSec > 0:
+        timeout = _dt.timedelta(seconds=float(solver_config.timeLimitSec))
+    
+    # Configure solver parameters
+    kwargs: Dict[str, Any] = {}
     if timeout is not None:
-        return instance.solve(timeout=timeout)
-    return instance.solve()
+        kwargs["timeout"] = timeout
+    
+    # Handle maxSolutions
+    if solver_config.maxSolutions > 1:
+        kwargs["nr_solutions"] = solver_config.maxSolutions
+    
+    return instance.solve(**kwargs)
 
 
 # Result extraction helpers ----------------------------------------------------

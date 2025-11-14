@@ -1,148 +1,265 @@
-# JSSP Backend (FastAPI, Python 3.11+)
+# JSSP Backend - Job Shop Scheduling Problem Solver
 
-Single-endpoint backend exposing:
-- POST /api/solve-once
+A FastAPI-based backend service for solving Job Shop Scheduling Problems (JSSP) using MiniZinc constraint programming.
 
-Designed to be called by a Next.js frontend that may add meta fields on its side. This backend never returns meta.
+## Features
 
-## Requirements
+- ✅ **Two Problem Types**:
+  - Weighted Tardiness Minimization (`tardanza_ponderada`)
+  - Makespan Minimization with Maintenance Windows (`jssp_maint`)
 
-- Python 3.11+
-- pip
-- Optional: Docker
+- ✅ **Multiple Solvers**: Support for Chuffed, Gecode, and OR-Tools
 
-## Setup (venv) and Install
+- ✅ **Configurable Search Strategies**: 7 search heuristics and 6 value choice strategies
+
+- ✅ **Flexible Input**: Accept JSON or multipart/form-data with file uploads
+
+- ✅ **Instance Management**: Load pre-stored instances or upload new ones
+
+- ✅ **Docker Ready**: Fully containerized with MiniZinc pre-installed
+
+- ✅ **Render.com Compatible**: Ready for one-click deployment
+
+## Quick Start
+
+### Using Docker (Recommended)
 
 ```bash
-# Create virtual environment
-python3.11 -m venv .venv
+# Build the image
+docker build -t jssp-backend .
 
-# Activate (macOS/Linux)
-source .venv/bin/activate
-# On Windows (PowerShell):
-# .venv\Scripts\Activate.ps1
+# Run the container
+docker run -p 8000:8000 jssp-backend
 
-# Upgrade pip and install deps
-pip install -U pip
-pip install -r requirements.txt
+# Test the API
+curl http://localhost:8000/
 ```
 
-## Run (local)
+### Local Development
 
 ```bash
+# Install MiniZinc (https://www.minizinc.org/software.html)
+minizinc --version
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Run the server
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- CORS: enabled for all origins.
-- Logging: basic logging to stdout via uvicorn.
+## API Usage
 
-## Endpoint
+### Health Check
 
-POST /api/solve-once
-
-Content types:
-1) application/json (no file; references an already loaded instance)
-   - instanceId: string (required)
-   - instanceName: string (optional)
-   - modelId: string (required)
-   - variation: string (optional)
-   - search: object SearchConfig (required)
-       - heuristic: "greedy" | "tabu" | "sa"
-       - timeLimitSec: number ≥ 0
-       - maxSolutions: number ≥ 1
-   - fileName: string (optional; informational)
-
-2) multipart/form-data (user uploads an instance file)
-   - file: UploadFile (optional if using instanceId)
-   - modelId: string (required)
-   - variation: string (optional)
-   - instanceId: string (optional)
-   - instanceName: string (optional)
-   - search: string (JSON serialized) required, same SearchConfig schema above
-
-Response (SolutionEnvelope), never includes meta:
-- status: "PENDING" | "RUNNING" | "COMPLETED" | "ERROR"
-- solution?:
-  - makespan: number ≥ 0
-  - machines: Array<{ id: string; name: string }>
-  - operations: Array<{ jobId: string; machineId: string; opId: string; start: number; end: number; duration: number }>
-  - stats: Record<string, number>
-- logs?: string[] (e.g., ["solver:basic","heuristic:greedy"])
-
-Validations (400 on failure):
-- SearchConfig: heuristic ∈ {"greedy","tabu","sa"}, timeLimitSec ≥ 0, maxSolutions ≥ 1
-- Operations:
-  - start, end, duration ≥ 0
-  - recommended: end == start + duration
-  - machineId must exist in machines
-  - IDs consistent; no duplicates within scope (jobId, opId)
-- makespan ≥ max end over operations
-- 500 for unexpected errors.
-
-## Example Requests
-
-Export backend base for convenience:
 ```bash
-export NEXT_PUBLIC_BACKEND_URL="http://localhost:8000"
+curl http://localhost:8000/
 ```
 
-JSON:
+### Solve with JSON
+
 ```bash
-curl -X POST "$NEXT_PUBLIC_BACKEND_URL/api/solve-once" \
+curl -X POST http://localhost:8000/api/solve-once \
   -H "Content-Type: application/json" \
-  -d '{ "instanceId":"tai-20-5-10", "modelId":"basic", "search":{"heuristic":"greedy","timeLimitSec":5,"maxSolutions":1} }'
+  -d '{
+    "instanceId": "sample-tardanza",
+    "solverConfig": {
+      "problemType": "tardanza_ponderada",
+      "solver": "chuffed",
+      "searchHeuristic": "first_fail",
+      "valueChoice": "indomain_min",
+      "timeLimitSec": 30,
+      "maxSolutions": 1
+    }
+  }'
 ```
 
-multipart:
+### Solve with File Upload
+
 ```bash
-curl -X POST "$NEXT_PUBLIC_BACKEND_URL/api/solve-once" \
-  -H "Accept: application/json" \
-  -F "file=@./instancias/tai-20-5-10.txt" \
-  -F "modelId=basic" \
-  -F "variation=default" \
-  -F "instanceId=tai-20-5-10" \
-  -F "instanceName=tai-20-5-10" \
-  -F 'search={\"heuristic\":\"tabu\",\"timeLimitSec\":30,\"maxSolutions\":3}'
+curl -X POST http://localhost:8000/api/solve-once \
+  -F "file=@./instances/sample.dzn" \
+  -F "instanceId=sample-instance" \
+  -F 'solverConfig={"problemType":"tardanza_ponderada","solver":"chuffed","searchHeuristic":"first_fail","valueChoice":"indomain_min","timeLimitSec":30,"maxSolutions":1}'
 ```
 
-Example successful response (200):
+## Configuration
+
+### Solver Configuration
+
+```typescript
+{
+  problemType: 'jssp_maint' | 'tardanza_ponderada'
+  solver: 'chuffed' | 'gecode' | 'or-tools'
+  searchHeuristic: 'input_order' | 'first_fail' | 'smallest' | 'largest' | 'dom_w_deg' | 'impact' | 'activity'
+  valueChoice: 'indomain_min' | 'indomain_max' | 'indomain_middle' | 'indomain_median' | 'indomain_random' | 'indomain_split'
+  timeLimitSec: number  // ≥ 0
+  maxSolutions: number  // ≥ 1
+}
+```
+
+### Problem Types
+
+#### Tardanza Ponderada (Weighted Tardiness)
+Minimizes weighted tardiness across all jobs.
+
+**Required Data:**
+- `jobs`: Number of jobs
+- `tasks`: Number of tasks per job
+- `d`: Duration matrix [jobs][tasks]
+- `weights`: Weight per job [jobs]
+- `due_dates`: Due date per job [jobs]
+
+#### JSSP with Maintenance
+Minimizes makespan while respecting maintenance windows.
+
+**Required Data:**
+- `JOBS`: Number of jobs
+- `TASKS`: Number of tasks per job
+- `PROC_TIME`: Processing time matrix [JOBS][TASKS]
+- `MAX_MAINT_WINDOWS`: Maximum maintenance windows
+- `MAINT_START`: Maintenance start times [TASKS][MAX_MAINT_WINDOWS]
+- `MAINT_END`: Maintenance end times [TASKS][MAX_MAINT_WINDOWS]
+- `MAINT_ACTIVE`: Active maintenance flags [TASKS][MAX_MAINT_WINDOWS]
+
+## Response Format
+
 ```json
 {
   "status": "COMPLETED",
   "solution": {
-    "makespan": 100,
+    "makespan": 15.0,
     "machines": [
-      { "id": "M1", "name": "M1" },
-      { "id": "M2", "name": "M2" }
+      {"id": "M1", "name": "M1"},
+      {"id": "M2", "name": "M2"}
     ],
     "operations": [
-      { "jobId": "J1", "machineId": "M1", "opId": "J1-1", "start": 0, "end": 20, "duration": 20 }
+      {
+        "jobId": "J1",
+        "machineId": "M1",
+        "opId": "J1-1",
+        "start": 0.0,
+        "end": 3.0,
+        "duration": 3.0
+      }
     ],
-    "stats": { "util": 0.72, "tardanza": 12 }
+    "stats": {
+      "w": 5.0,
+      "tardanza": 5.0
+    }
   },
-  "logs": ["solver:basic", "heuristic:greedy"]
+  "logs": [
+    "solver:chuffed",
+    "problemType:tardanza_ponderada",
+    "searchHeuristic:first_fail",
+    "valueChoice:indomain_min"
+  ]
 }
 ```
 
+## Deployment
+
+### Render.com (Recommended)
+
+1. Push code to GitHub
+2. Create new Web Service on Render
+3. Connect your repository
+4. Select "Docker" runtime
+5. Deploy!
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions.
+
+### Other Platforms
+
+The Docker image works on any platform supporting Docker:
+- AWS ECS/Fargate
+- Google Cloud Run
+- Azure Container Instances
+- Heroku
+- DigitalOcean App Platform
+
 ## Project Structure
 
-- app/main.py — FastAPI app, CORS, error handlers, POST /api/solve-once mock solver
-- app/models.py — Pydantic v2 models (SearchConfig, Solution, etc.)
-- app/validation.py — Validation helpers
-- requirements.txt — Python dependencies
-
-Run target for uvicorn uses [main.app](app/main.py:171) exported at module path app.main:app.
-
-## Docker (optional)
-
-A Dockerfile is provided to run with uvicorn. Build and run:
-
-```bash
-docker build -t jssp-backend .
-docker run --rm -p 8000:8000 jssp-backend
+```
+jssp-backend/
+├── app/
+│   ├── __init__.py
+│   ├── main.py           # FastAPI application and endpoints
+│   ├── models.py         # Pydantic models and schemas
+│   ├── solver.py         # MiniZinc solver integration
+│   ├── validation.py     # Input/output validation
+│   └── modelos/
+│       ├── JOBSHOP_MANTENIMIENTO.MZN
+│       └── JOBSHOP_TARDANZA.MZN
+├── storage/
+│   └── instances/        # Pre-stored instance files
+│       ├── sample-tardanza.json
+│       └── sample-maint.json
+├── Dockerfile            # Docker configuration
+├── requirements.txt      # Python dependencies
+├── README.md            # This file
+└── DEPLOYMENT.md        # Deployment guide
 ```
 
-## Notes
+## Development
 
-- The backend may simulate solving and return a coherent COMPLETED solution with logs like ["solver:<modelId>","heuristic:<heuristic>"].
-- The frontend is responsible for adding meta before responding to the browser; this backend never returns meta.
+### Running Tests
+
+```bash
+# Install dev dependencies
+pip install pytest pytest-asyncio httpx
+
+# Run tests (when implemented)
+pytest
+```
+
+### Code Style
+
+```bash
+# Format code
+black app/
+
+# Type checking
+mypy app/
+
+# Linting
+ruff check app/
+```
+
+## Technologies
+
+- **FastAPI**: Modern Python web framework
+- **MiniZinc**: Constraint programming platform
+- **Pydantic**: Data validation
+- **Uvicorn**: ASGI server
+- **Docker**: Containerization
+
+## Requirements
+
+- Python 3.11+
+- MiniZinc 2.8.5+
+- Docker (for containerized deployment)
+
+## License
+
+[Your License Here]
+
+## Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+## Support
+
+For issues or questions:
+- Check [DEPLOYMENT.md](DEPLOYMENT.md) for deployment help
+- Review API documentation at `/docs` (when server is running)
+- Open an issue on GitHub
+
+## Acknowledgments
+
+- MiniZinc team for the constraint programming platform
+- FastAPI team for the excellent web framework
