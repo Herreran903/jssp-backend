@@ -396,7 +396,7 @@ async def _solve_instance(instance: Instance, *, solver_config: SolverConfig) ->
 
 
 def _require_result_int(result: Result, key: str) -> int:
-    if key not in result:
+    if not hasattr(result.solution, key):
         raise RuntimeError(f"Result missing key '{key}'")
     val = result[key]
     try:
@@ -406,7 +406,7 @@ def _require_result_int(result: Result, key: str) -> int:
 
 
 def _require_result_2d(result: Result, key: str, *, rows: int, cols: int) -> List[List[int]]:
-    if key not in result:
+    if not hasattr(result.solution, key):
         raise RuntimeError(f"Result missing key '{key}'")
     val = result[key]
     # MiniZinc Python typically returns nested lists for arrays
