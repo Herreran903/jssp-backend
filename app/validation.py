@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Set, Tuple
 
-from .models import SearchConfig, Solution
+from .models import SolverConfig, Solution
 
 
-def validate_search(search: SearchConfig) -> None:
+def validate_search(search: SolverConfig) -> None:
     """
     Minimal validations beyond Pydantic's schema constraints.
     Raises ValueError with a clear message on failure.
