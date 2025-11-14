@@ -410,11 +410,20 @@ def _require_result_2d(result: Result, key: str, *, rows: int, cols: int) -> Lis
         raise RuntimeError(f"Result missing key '{key}'")
     val = result[key]
     # MiniZinc Python typically returns nested lists for arrays
+    # val is already the 2D array, not the result object
     try:
-        mat = [[int(val[i][j]) for j in range(cols)] for i in range(rows)]  # type: ignore[index]
+        # Check if val is already a nested list structure
+        if isinstance(val, list) and val and isinstance(val[0], list):
+            # Already a 2D list
+            mat = [[int(val[i][j]) for j in range(cols)] for i in range(rows)]
+        else:
+            # Flat list - reshape it
+            if not isinstance(val, list) or len(val) != rows * cols:
+                raise ValueError(f"Expected flat list of length {rows * cols}, got {type(val)} with length {len(val) if isinstance(val, list) else 'N/A'}")
+            mat = [[int(val[i * cols + j]) for j in range(cols)] for i in range(rows)]
         return mat
     except Exception as exc:
-        raise RuntimeError(f"Result key '{key}' is not a 2D int matrix with shape [{rows}][{cols}]") from exc
+        raise RuntimeError(f"Result key '{key}' is not a 2D int matrix with shape [{rows}][{cols}]: {exc}") from exc
 
 
 # Input validation helpers -----------------------------------------------------

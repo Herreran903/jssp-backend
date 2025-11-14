@@ -4,18 +4,18 @@ REM Quick start script for local development on Windows
 echo 🚀 Starting JSSP Backend...
 echo.
 
-REM Check if MiniZinc is installed
-where minizinc >nul 2>nul
-if %ERRORLEVEL% NEQ 0 (
-    echo ❌ MiniZinc is not installed!
-    echo Please install MiniZinc from: https://www.minizinc.org/software.html
-    pause
-    exit /b 1
-)
+@REM REM Check if MiniZinc is installed
+@REM where minizinc >nul 2>nul
+@REM if %ERRORLEVEL% NEQ 0 (
+@REM     echo ❌ MiniZinc is not installed!
+@REM     echo Please install MiniZinc from: https://www.minizinc.org/software.html
+@REM     pause
+@REM     exit /b 1
+@REM )
 
-echo ✅ MiniZinc found
-minizinc --version
-echo.
+@REM echo ✅ MiniZinc found
+@REM minizinc --version
+@REM echo.
 
 REM Check if virtual environment exists
 if not exist "venv" (
