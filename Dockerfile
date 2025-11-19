@@ -6,13 +6,14 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# System deps: compilación + MiniZinc + libs GL/EGL que pide fzn-gecode
+# System deps: compilación + MiniZinc + libs GL/EGL/fontconfig que pide fzn-gecode
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     wget \
     ca-certificates \
     libgl1 \
     libegl1 \
+    libfontconfig1 \
   && rm -rf /var/lib/apt/lists/*
 
 # Install MiniZinc
