@@ -6,14 +6,25 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# System deps: compilación + MiniZinc + libs GL/EGL/fontconfig/gpg-error que pide fzn-gecode
+# System deps: compilación + GL/EGL/X11/fontconfig/gpg-error que suele pedir el bundle de MiniZinc
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     wget \
     ca-certificates \
+    # GL / EGL
     libgl1 \
     libegl1 \
+    # X11 / render
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxrender1 \
+    libxext6 \
+    # fuentes y texto
     libfontconfig1 \
+    libfreetype6 \
+    # glib / errores gpg (arrastrados por algunas libs gráficas)
+    libglib2.0-0 \
     libgpg-error0 \
   && rm -rf /var/lib/apt/lists/*
 
