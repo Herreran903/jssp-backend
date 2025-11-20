@@ -216,6 +216,7 @@ async def _run_jobshop_tardanza(
         # Build operations
         ops: List[Operation] = []
         for i in range(1, jobs + 1):
+            job_due_date = float(due_dates[i - 1])
             for j in range(1, tasks + 1):
                 start = float(s[i - 1][j - 1])
                 duration = float(d[i - 1][j - 1])
@@ -228,6 +229,7 @@ async def _run_jobshop_tardanza(
                         start=start,
                         end=end,
                         duration=duration,
+                        dueDate=job_due_date,
                     )
                 )
 

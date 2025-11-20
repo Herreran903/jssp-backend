@@ -43,6 +43,7 @@ class Operation(BaseModel):
     start: float = Field(ge=0)
     end: float = Field(ge=0)
     duration: float = Field(ge=0)
+    dueDate: Optional[float] = Field(default=None, ge=0)
 
 
 class MaintenanceWindow(BaseModel):
