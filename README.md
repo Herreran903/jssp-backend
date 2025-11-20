@@ -1,265 +1,194 @@
-# JSSP Backend - Job Shop Scheduling Problem Solver
+# JSSP Backend
 
-A FastAPI-based backend service for solving Job Shop Scheduling Problems (JSSP) using MiniZinc constraint programming.
+Servicio backend en Python (FastAPI) para resolver variantes del Job Shop Scheduling Problem (JSSP) usando MiniZinc. Expone un endpoint HTTP para ejecutar una resolución única de una instancia y devolver un sobre de solución con operaciones, máquinas, métricas y bitácora de configuración.
 
-## Features
+Código principal en [app/main.py](app/main.py), modelos de datos en [app/models.py](app/models.py), lógica de resolución y parseo en [app/solver.py](app/solver.py) y validaciones en [app/validation.py](app/validation.py). Aplicación creada en [def create_app()](app/main.py:22) y endpoint principal en [def solve_once()](app/main.py:62).
 
-- ✅ **Two Problem Types**:
-  - Weighted Tardiness Minimization (`tardanza_ponderada`)
-  - Makespan Minimization with Maintenance Windows (`jssp_maint`)
+## Arquitectura general
 
-- ✅ **Multiple Solvers**: Support for Chuffed, Gecode, and OR-Tools
+- Backend: FastAPI sirviendo:
+  - GET / → health check.
+  - POST /api/solve-once → ejecuta MiniZinc con una instancia dada.
+- Motor de resolución: MiniZinc invocado desde Python vía paquete minizinc, modelos en:
+  - [app/modelos/JOBSHOP_TARDANZA.MZN](app/modelos/JOBSHOP_TARDANZA.MZN)
+  - [app/modelos/JOBSHOP_MANTENIMIENTO.MZN](app/modelos/JOBSHOP_MANTENIMIENTO.MZN)
+- Almacenamiento de instancias de ejemplo: [storage/instances/](storage/instances/)
+- No hay frontend en este repositorio. CORS está habilitado para orígenes externos en [app/main.py](app/main.py).
 
-- ✅ **Configurable Search Strategies**: 7 search heuristics and 6 value choice strategies
+## Requisitos previos
 
-- ✅ **Flexible Input**: Accept JSON or multipart/form-data with file uploads
+Opción A: Local (sin contenedor)
+- Python 3.11 (recomendado; el contenedor usa 3.11)
+- MiniZinc instalado y disponible en PATH
+- pip y venv
 
-- ✅ **Instance Management**: Load pre-stored instances or upload new ones
+Opción B: Docker
+- Docker 24+ recomendado
 
-- ✅ **Docker Ready**: Fully containerized with MiniZinc pre-installed
+## Instalación y ejecución local
 
-- ✅ **Render.com Compatible**: Ready for one-click deployment
+Rápido con scripts:
+- macOS/Linux: [start.sh](start.sh)
+- Windows: [start.bat](start.bat)
 
-## Quick Start
+Manual (macOS/Linux):
+- Crear y activar entorno
+  - python3 -m venv venv
+  - source venv/bin/activate
+- Instalar dependencias
+  - pip install -U pip
+  - pip install -r [requirements.txt](requirements.txt)
+- Iniciar servidor
+  - uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-### Using Docker (Recommended)
+Verificación:
+- Abrir http://localhost:8000/ debe responder {"status":"ok","service":"JSSP Backend"}
+- Documentación interactiva: http://localhost:8000/docs
 
-```bash
-# Build the image
-docker build -t jssp-backend .
+## Configuración y variables de entorno
 
-# Run the container
-docker run -p 8000:8000 jssp-backend
+- PORT: puerto al que escucha uvicorn. Por defecto 8000 localmente. En contenedores/Render se puede inyectar; ver [render.yaml](render.yaml) y [Dockerfile](Dockerfile).
+- No hay otras variables de entorno obligatorias.
 
-# Test the API
-curl http://localhost:8000/
-```
+## API
 
-### Local Development
+Base URL: http://localhost:8000
 
-```bash
-# Install MiniZinc (https://www.minizinc.org/software.html)
-minizinc --version
+Endpoints:
+- GET / → health check.
+- POST /api/solve-once → recibe una instancia por id o archivo y una configuración de solver, y retorna un [class SolutionEnvelope](app/models.py:56).
 
-# Install Python dependencies
-pip install -r requirements.txt
+Esquemas principales:
+- [class SolverConfig](app/models.py:7)
+  - problemType: "jssp_maint" | "tardanza_ponderada"
+  - solver: "chuffed" | "gecode" | "or-tools"
+  - searchHeuristic: "input_order" | "first_fail" | "smallest" | "largest" | "dom_w_deg" | "impact" | "activity"
+  - valueChoice: "indomain_min" | "indomain_max" | "indomain_middle" | "indomain_median" | "indomain_random" | "indomain_split"
+  - timeLimitSec: número ≥ 0
+  - maxSolutions: entero ≥ 1
+- [class Solution](app/models.py:48) con makespan, machines, operations y stats.
+- Validación de solución en [def validate_solution()](app/validation.py:20).
 
-# Run the server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+Modos de envío:
 
-## API Usage
+1) JSON application/json
+- Cuerpo:
+{
+  "instanceId": "sample-maint",
+  "instanceName": "demo mantenimiento",
+  "solverConfig": {
+    "problemType": "jssp_maint",
+    "solver": "gecode",
+    "searchHeuristic": "first_fail",
+    "valueChoice": "indomain_min",
+    "timeLimitSec": 10,
+    "maxSolutions": 1
+  }
+}
 
-### Health Check
-
-```bash
-curl http://localhost:8000/
-```
-
-### Solve with JSON
-
-```bash
+Ejemplo curl:
 curl -X POST http://localhost:8000/api/solve-once \
   -H "Content-Type: application/json" \
-  -d '{
-    "instanceId": "sample-tardanza",
-    "solverConfig": {
-      "problemType": "tardanza_ponderada",
-      "solver": "chuffed",
-      "searchHeuristic": "first_fail",
-      "valueChoice": "indomain_min",
-      "timeLimitSec": 30,
-      "maxSolutions": 1
-    }
-  }'
-```
+  -d @- <<'JSON'
+{
+  "instanceId": "sample-maint",
+  "solverConfig": {
+    "problemType": "jssp_maint",
+    "solver": "gecode",
+    "searchHeuristic": "first_fail",
+    "valueChoice": "indomain_min",
+    "timeLimitSec": 5,
+    "maxSolutions": 1
+  }
+}
+JSON
 
-### Solve with File Upload
+2) multipart/form-data con archivo
+- Campos:
+  - file: archivo .json o .dzn
+  - solverConfig: string JSON del objeto SolverConfig
+  - instanceName: opcional
+  - instanceId: opcional si se adjunta file
 
-```bash
+Ejemplo curl:
 curl -X POST http://localhost:8000/api/solve-once \
-  -F "file=@./instances/sample.dzn" \
-  -F "instanceId=sample-instance" \
-  -F 'solverConfig={"problemType":"tardanza_ponderada","solver":"chuffed","searchHeuristic":"first_fail","valueChoice":"indomain_min","timeLimitSec":30,"maxSolutions":1}'
-```
+  -F file=@storage/instances/sample-tardanza.json \
+  -F solverConfig='{"problemType":"tardanza_ponderada","solver":"gecode","searchHeuristic":"first_fail","valueChoice":"indomain_min","timeLimitSec":5,"maxSolutions":1}' \
+  -F instanceName="demo tardanza"
 
-## Configuration
+Notas:
+- Si se usa instanceId, el backend carga [def load_instance_by_id()](app/solver.py:80) desde [storage/instances](storage/instances/), buscando {id}.json o {id}.dzn.
+- Archivos .dzn y .json se aceptan; el parseo de multipart se hace en [def parse_instance_payload_from_multipart()](app/solver.py:46).
+- La ejecución MiniZinc se orquesta en [def solve_jobshop()](app/solver.py:18), que delega a variantes según problemType.
 
-### Solver Configuration
+## Modelos MiniZinc soportados
 
-```typescript
-{
-  problemType: 'jssp_maint' | 'tardanza_ponderada'
-  solver: 'chuffed' | 'gecode' | 'or-tools'
-  searchHeuristic: 'input_order' | 'first_fail' | 'smallest' | 'largest' | 'dom_w_deg' | 'impact' | 'activity'
-  valueChoice: 'indomain_min' | 'indomain_max' | 'indomain_middle' | 'indomain_median' | 'indomain_random' | 'indomain_split'
-  timeLimitSec: number  // ≥ 0
-  maxSolutions: number  // ≥ 1
-}
-```
+- tardanza_ponderada → [app/modelos/JOBSHOP_TARDANZA.MZN](app/modelos/JOBSHOP_TARDANZA.MZN)
+  - Datos esperados: jobs, tasks, d, weights, due_dates.
+- jssp_maint → [app/modelos/JOBSHOP_MANTENIMIENTO.MZN](app/modelos/JOBSHOP_MANTENIMIENTO.MZN)
+  - Datos esperados: JOBS, TASKS, PROC_TIME, MAX_MAINT_WINDOWS, MAINT_START, MAINT_END, MAINT_ACTIVE.
 
-### Problem Types
+La inyección de estrategia de búsqueda al modelo se realiza en [def _build_modified_model()](app/solver.py:123). La selección del solver se hace en [def _build_instance()](app/solver.py:348).
 
-#### Tardanza Ponderada (Weighted Tardiness)
-Minimizes weighted tardiness across all jobs.
+## Instancias de ejemplo
 
-**Required Data:**
-- `jobs`: Number of jobs
-- `tasks`: Number of tasks per job
-- `d`: Duration matrix [jobs][tasks]
-- `weights`: Weight per job [jobs]
-- `due_dates`: Due date per job [jobs]
+- [storage/instances/sample-maint.json](storage/instances/sample-maint.json)
+- [storage/instances/sample-tardanza.json](storage/instances/sample-tardanza.json)
 
-#### JSSP with Maintenance
-Minimizes makespan while respecting maintenance windows.
+Use los ids: sample-maint o sample-tardanza como instanceId.
 
-**Required Data:**
-- `JOBS`: Number of jobs
-- `TASKS`: Number of tasks per job
-- `PROC_TIME`: Processing time matrix [JOBS][TASKS]
-- `MAX_MAINT_WINDOWS`: Maximum maintenance windows
-- `MAINT_START`: Maintenance start times [TASKS][MAX_MAINT_WINDOWS]
-- `MAINT_END`: Maintenance end times [TASKS][MAX_MAINT_WINDOWS]
-- `MAINT_ACTIVE`: Active maintenance flags [TASKS][MAX_MAINT_WINDOWS]
+## Ejecutar con Docker
 
-## Response Format
+Construir imagen:
+docker build -t jssp-backend .
 
-```json
-{
-  "status": "COMPLETED",
-  "solution": {
-    "makespan": 15.0,
-    "machines": [
-      {"id": "M1", "name": "M1"},
-      {"id": "M2", "name": "M2"}
-    ],
-    "operations": [
-      {
-        "jobId": "J1",
-        "machineId": "M1",
-        "opId": "J1-1",
-        "start": 0.0,
-        "end": 3.0,
-        "duration": 3.0
-      }
-    ],
-    "stats": {
-      "w": 5.0,
-      "tardanza": 5.0
-    }
-  },
-  "logs": [
-    "solver:chuffed",
-    "problemType:tardanza_ponderada",
-    "searchHeuristic:first_fail",
-    "valueChoice:indomain_min"
-  ]
-}
-```
+Ejecutar contenedor:
+docker run --rm -p 8000:8000 jssp-backend
 
-## Deployment
+Variables:
+- La imagen expone 8000 y usa PORT por entorno; por defecto 8000. Cambiar puerto:
+docker run --rm -e PORT=8080 -p 8080:8080 jssp-backend
 
-### Render.com (Recommended)
+Verificación en contenedor:
+- GET http://localhost:8000/
+- Docs en http://localhost:8000/docs
 
-1. Push code to GitHub
-2. Create new Web Service on Render
-3. Connect your repository
-4. Select "Docker" runtime
-5. Deploy!
+## Despliegue en Render
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions.
+Archivo [render.yaml](render.yaml) define un servicio web Docker con PORT=10000 y healthCheckPath "/".
 
-### Other Platforms
+## Pruebas
 
-The Docker image works on any platform supporting Docker:
-- AWS ECS/Fargate
-- Google Cloud Run
-- Azure Container Instances
-- Heroku
-- DigitalOcean App Platform
+No se incluyen tests en este repositorio.
 
-## Project Structure
+## Comandos útiles
 
-```
-jssp-backend/
-├── app/
-│   ├── __init__.py
-│   ├── main.py           # FastAPI application and endpoints
-│   ├── models.py         # Pydantic models and schemas
-│   ├── solver.py         # MiniZinc solver integration
-│   ├── validation.py     # Input/output validation
-│   └── modelos/
-│       ├── JOBSHOP_MANTENIMIENTO.MZN
-│       └── JOBSHOP_TARDANZA.MZN
-├── storage/
-│   └── instances/        # Pre-stored instance files
-│       ├── sample-tardanza.json
-│       └── sample-maint.json
-├── Dockerfile            # Docker configuration
-├── requirements.txt      # Python dependencies
-├── README.md            # This file
-└── DEPLOYMENT.md        # Deployment guide
-```
+- Ver versión de MiniZinc:
+  - minizinc --version
+- Ejecutar servidor localmente:
+  - uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+- Scripts de inicio:
+  - bash [start.sh](start.sh)
+  - [start.bat](start.bat)
 
-## Development
+## Estructura del proyecto
 
-### Running Tests
-
-```bash
-# Install dev dependencies
-pip install pytest pytest-asyncio httpx
-
-# Run tests (when implemented)
-pytest
-```
-
-### Code Style
-
-```bash
-# Format code
-black app/
-
-# Type checking
-mypy app/
-
-# Linting
-ruff check app/
-```
-
-## Technologies
-
-- **FastAPI**: Modern Python web framework
-- **MiniZinc**: Constraint programming platform
-- **Pydantic**: Data validation
-- **Uvicorn**: ASGI server
-- **Docker**: Containerization
-
-## Requirements
-
-- Python 3.11+
-- MiniZinc 2.8.5+
-- Docker (for containerized deployment)
-
-## License
-
-[Your License Here]
-
-## Contributing
-
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## Support
-
-For issues or questions:
-- Check [DEPLOYMENT.md](DEPLOYMENT.md) for deployment help
-- Review API documentation at `/docs` (when server is running)
-- Open an issue on GitHub
-
-## Acknowledgments
-
-- MiniZinc team for the constraint programming platform
-- FastAPI team for the excellent web framework
+.
+├── [app/](app/)
+│   ├── [__init__.py](app/__init__.py)
+│   ├── [main.py](app/main.py)
+│   ├── [models.py](app/models.py)
+│   ├── [solver.py](app/solver.py)
+│   ├── [validation.py](app/validation.py)
+│   └── [modelos/](app/modelos/)
+│       ├── [JOBSHOP_MANTENIMIENTO.MZN](app/modelos/JOBSHOP_MANTENIMIENTO.MZN)
+│       └── [JOBSHOP_TARDANZA.MZN](app/modelos/JOBSHOP_TARDANZA.MZN)
+├── [storage/](storage/)
+│   └── [instances/](storage/instances/)
+│       ├── [sample-maint.json](storage/instances/sample-maint.json)
+│       └── [sample-tardanza.json](storage/instances/sample-tardanza.json)
+├── [requirements.txt](requirements.txt)
+├── [Dockerfile](Dockerfile)
+├── [render.yaml](render.yaml)
+├── [start.sh](start.sh)
+└── [start.bat](start.bat)
