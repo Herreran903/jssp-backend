@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Tuple
 
 from minizinc import Instance, Model, Result, Solver  # type: ignore
 
-from .models import Machine, Operation, SolverConfig, Solution
+from .models import Machine, MaintenanceWindow, Operation, SolverConfig, Solution
 
 
 # Public API ------------------------------------------------------------------
@@ -341,15 +341,27 @@ async def _run_jobshop_mantenimiento(
                     )
                 )
 
-        # Stats for maintenance
+        # Extract maintenance windows
+        maintenance_windows: List[MaintenanceWindow] = []
         maint_windows = 0
         maint_time = 0
         for m in range(TASKS):
             for k in range(MAX_MW):
                 if bool(MAINT_ACTIVE[m][k]):
                     maint_windows += 1
-                    dur = max(0, int(MAINT_END[m][k]) - int(MAINT_START[m][k]))
-                    maint_time += dur
+                    start = float(MAINT_START[m][k])
+                    end = float(MAINT_END[m][k])
+                    duration = max(0.0, end - start)
+                    maint_time += duration
+                    
+                    maintenance_windows.append(
+                        MaintenanceWindow(
+                            machineId=f"M{m + 1}",
+                            start=start,
+                            end=end,
+                            duration=duration,
+                        )
+                    )
 
         stats: Dict[str, float] = {
             "maint_windows": float(maint_windows),
@@ -360,6 +372,7 @@ async def _run_jobshop_mantenimiento(
             makespan=float(END),
             machines=machines,
             operations=ops,
+            maintenanceWindows=maintenance_windows if maintenance_windows else None,
             stats=stats,
         )
         return solution, stats

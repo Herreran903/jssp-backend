@@ -45,11 +45,20 @@ class Operation(BaseModel):
     duration: float = Field(ge=0)
 
 
+class MaintenanceWindow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    machineId: str
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    duration: float = Field(ge=0)
+
+
 class Solution(BaseModel):
     model_config = ConfigDict(extra="forbid")
     makespan: float = Field(ge=0)
     machines: List[Machine]
     operations: List[Operation]
+    maintenanceWindows: Optional[List[MaintenanceWindow]] = None
     stats: Dict[str, float]
 
 
