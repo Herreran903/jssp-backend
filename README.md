@@ -67,6 +67,8 @@ Esquemas principales:
   - timeLimitSec: número ≥ 0
   - maxSolutions: entero ≥ 1
 - [class Solution](app/models.py:48) con makespan, machines, operations y stats.
+  - Para `tardanza_ponderada`: stats incluye `w` (tardanza ponderada), `tardanza_total`, `jobs_tardios`, `max_tardanza`
+  - Para `jssp_maint`: stats incluye `maint_windows` (ventanas de mantenimiento activas), `maint_time` (tiempo total de mantenimiento)
 - Validación de solución en [def validate_solution()](app/validation.py:20).
 
 Modos de envío:
