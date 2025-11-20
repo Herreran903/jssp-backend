@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from typing import Any, Dict, List, Tuple
 
 from minizinc import Instance, Model, Result, Solver  # type: ignore
@@ -19,28 +20,32 @@ async def solve_jobshop(
     *,
     data: Dict[str, Any],
     solver_config: SolverConfig,
-) -> Tuple[Solution, Dict[str, float]]:
+) -> Tuple[Solution, Dict[str, float], float]:
     """
     Execute the specified jobshop problem using MiniZinc with the provided configuration.
 
     Returns:
-        (solution, stats)
+        (solution, stats, elapsed_ms)
     Raises:
         ValueError on validation / unsupported configuration or data problems.
         RuntimeError on MiniZinc execution errors or no feasible solution.
     """
+    start_time = time.perf_counter()
     model_path = _select_model_path(solver_config.problemType)
 
     if solver_config.problemType == "tardanza_ponderada":
-        return await _run_jobshop_tardanza(
+        solution, stats = await _run_jobshop_tardanza(
             model_path=model_path, data=data, solver_config=solver_config
         )
     elif solver_config.problemType == "jssp_maint":
-        return await _run_jobshop_mantenimiento(
+        solution, stats = await _run_jobshop_mantenimiento(
             model_path=model_path, data=data, solver_config=solver_config
         )
     else:
         raise ValueError(f"Unsupported problemType '{solver_config.problemType}'")
+    
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    return solution, stats, elapsed_ms
 
 
 def parse_instance_payload_from_multipart(
@@ -228,9 +233,30 @@ async def _run_jobshop_tardanza(
 
         makespan = max((op.end for op in ops), default=0.0)
 
+        # Calculate tardiness metrics
+        tardanza_total = 0.0
+        jobs_tardios = 0
+        max_tardanza = 0.0
+        
+        for i in range(1, jobs + 1):
+            # Find completion time for job i (end time of last task)
+            job_ops = [op for op in ops if op.jobId == f"J{i}"]
+            completion_time = max((op.end for op in job_ops), default=0.0)
+            
+            # Calculate tardiness for this job
+            due_date = float(due_dates[i - 1])
+            tardiness = max(0.0, completion_time - due_date)
+            
+            if tardiness > 0:
+                tardanza_total += tardiness
+                jobs_tardios += 1
+                max_tardanza = max(max_tardanza, tardiness)
+
         stats: Dict[str, float] = {
             "w": float(w),
-            "tardanza": float(w),
+            "tardanza_total": tardanza_total,
+            "jobs_tardios": float(jobs_tardios),
+            "max_tardanza": max_tardanza,
         }
 
         solution = Solution(

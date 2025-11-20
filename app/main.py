@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .models import SolverConfig, Solution, SolutionEnvelope
+from .models import SolverConfig, Solution, SolutionEnvelope, Meta
 from .validation import validate_solution
 from .solver import (
     solve_jobshop,
@@ -179,7 +180,7 @@ def create_app() -> FastAPI:
 
             # Solve with MiniZinc using the configured solver
             try:
-                solution, _stats = await solve_jobshop(
+                solution, _stats, elapsed_ms = await solve_jobshop(
                     data=data, solver_config=solver_config
                 )
             except ValueError as ve:
@@ -193,7 +194,7 @@ def create_app() -> FastAPI:
                     logs=[f"error: {str(re)}"]
                 )
                 return JSONResponse(
-                    status_code=200, 
+                    status_code=200,
                     content=envelope.model_dump(exclude_none=True)
                 )
 
@@ -214,13 +215,20 @@ def create_app() -> FastAPI:
             if instance_name:
                 logs.append(f"instanceName:{instance_name}")
 
+            # Create meta object with execution metadata
+            meta = Meta(
+                elapsedMs=elapsed_ms,
+                timestamp=datetime.now(timezone.utc).isoformat()
+            )
+
             envelope = SolutionEnvelope(
                 status="COMPLETED",
                 solution=solution,
+                meta=meta,
                 logs=logs,
             )
             return JSONResponse(
-                status_code=200, 
+                status_code=200,
                 content=envelope.model_dump(exclude_none=True)
             )
 

@@ -53,8 +53,15 @@ class Solution(BaseModel):
     stats: Dict[str, float]
 
 
+class Meta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    elapsedMs: float = Field(ge=0, description="Execution time in milliseconds")
+    timestamp: str = Field(description="Execution timestamp in ISO 8601 format")
+
+
 class SolutionEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: Literal["PENDING", "RUNNING", "COMPLETED", "ERROR"]
     solution: Optional[Solution] = None
+    meta: Optional[Meta] = None
     logs: Optional[List[str]] = None
